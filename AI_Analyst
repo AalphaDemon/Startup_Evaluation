@@ -1,0 +1,134 @@
+import os
+from google.cloud import language_v1
+from google.cloud import bigquery
+
+# Set path to your Google service account JSON file
+# Example: os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "C:/path/to/key.json"
+# You can set this environment variable outside this script as well
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "path/to/your-service-account-key.json"
+
+# Function to read founder materials from a text file
+def read_text_file(file_path):
+    with open("D:\\Pythonproject\\founder_materials.txt", "r", encoding="utf-8") as f:
+        return f.read()
+
+# Function to analyze text with Google Natural Language API
+def analyze_text_nlp(text):
+    client = language_v1.LanguageServiceClient()
+
+    document = language_v1.Document(content=text, type_=language_v1.Document.Type.PLAIN_TEXT)
+    
+    # Analyze entities
+    entity_response = client.analyze_entities(document=document)
+    entities = []
+    for entity in entity_response.entities:
+        entities.append({
+            "name": entity.name,
+            "type": language_v1.Entity.Type(entity.type_).name,
+            "salience": entity.salience
+        })
+
+    # Analyze sentiment
+    sentiment_response = client.analyze_sentiment(document=document)
+    sentiment = sentiment_response.document_sentiment
+
+    return {
+        "entities": entities,
+        "sentiment_score": sentiment.score,
+        "sentiment_magnitude": sentiment.magnitude,
+    }
+
+# Function to upload public startup data to BigQuery
+def upload_startup_data_to_bigquery(project_id, dataset_id, table_id, data):
+    client = bigquery.Client(project=project_id)
+    dataset_ref = client.dataset(dataset_id)
+    table_ref = dataset_ref.table(table_id)
+
+    rows_to_insert = [data]  # List of dicts
+
+    errors = client.insert_rows_json(table_ref, rows_to_insert)
+    if errors:
+        print("Errors uploading data to BigQuery:", errors)
+    else:
+        print("Uploaded public data to BigQuery successfully.")
+
+# Function to query aggregated startup analytics from BigQuery
+def query_startup_analytics(project_id, dataset_id, table_id, industry):
+    client = bigquery.Client(project=project_id)
+    query = f"""
+    SELECT 
+      industry, 
+      AVG(funding) as avg_funding, 
+      COUNT(*) as num_startups
+    FROM `{project_id}.{dataset_id}.{table_id}`
+    WHERE industry = @industry
+    GROUP BY industry
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("industry", "STRING", industry)
+        ]
+    )
+    query_job = client.query(query, job_config=job_config)
+    results = query_job.result()
+    return [dict(row.items()) for row in results]
+
+def main():
+    # ***** MODIFY THESE TO YOUR SETUP *****
+    project_id = "your-google-cloud-project-id"
+    dataset_id = "your_dataset_name"
+    table_id = "startup_public_data"
+    founder_file_path = "founder_materials.txt"  # Make sure this file exists
+
+    # Start analysis flow
+    print("Reading founder materials...")
+    founder_text = read_text_file(founder_file_path)
+
+    print("Analyzing founder materials with Google NLP...")
+    nlp_result = analyze_text_nlp(founder_text)
+    print("NLP Analysis:")
+    print(f"Entities found: {[e['name'] for e in nlp_result['entities']]}")
+    print(f"Sentiment score: {nlp_result['sentiment_score']} (range -1.0 to 1.0)")
+
+    startup_name = input("Enter the startup name for public data: ").strip()
+    
+    # For demo, create mock public data related to input startup
+    public_data = {
+        "startup_name": startup_name,
+        "funding": 3000000,         # mock funding
+        "industry": "AI",           # mock industry
+        "founded_year": 2021,       # mock founding year
+        "employees": 20             # mock employee count
+    }
+    
+    print("Uploading public data to BigQuery...")
+    upload_startup_data_to_bigquery(project_id, dataset_id, table_id, public_data)
+
+    print(f"Querying analytics for industry '{public_data['industry']}'...")
+    analytics = query_startup_analytics(project_id, dataset_id, table_id, public_data['industry'])
+    if analytics:
+        industry_data = analytics[0]
+        print(f"Average funding in {industry_data['industry']}: ${industry_data['avg_funding']:.0f} across {industry_data['num_startups']} startups")
+    else:
+        print("No data available for this industry.")
+        industry_data = None
+
+    # Generate investment insight summary
+    insight = f"""
+    Investment Insight Report for '{startup_name}'
+
+    Founder Material Sentiment Score: {nlp_result['sentiment_score']:.2f}
+    Entities Mentioned: {[e['name'] for e in nlp_result['entities']]}
+
+    Industry: {public_data['industry']}
+    Average Industry Funding: ${industry_data['avg_funding']:.0f} (based on {industry_data['num_startups']} startups) if available else N/A
+
+    Summary:
+    The founder materials show a {'positive' if nlp_result['sentiment_score'] > 0 else 'neutral or negative'} sentiment.
+    Compare this with average funding levels in the industry to assess investment potential.
+    """
+
+    print(insight)
+
+if __name__ == "__main__":
+    main()
