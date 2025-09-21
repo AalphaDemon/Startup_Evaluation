@@ -1,0 +1,17 @@
+founder_materials
+Add the founder details
+
+Website:
+Company: 
+Founder & CEO: 
+Co-Founder: 
+Founded: 
+Industry: 
+Achievements:
+- Recognized by 
+- Supported by 
+- Served over 100 startups 
+Vision:
+Mission:
+Investment:
+Investors:
